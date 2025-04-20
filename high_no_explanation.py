@@ -55,7 +55,7 @@ def convert_svg_to_png(svg_content):
         return None
 
 # 设置默认生成的设计数量，取代UI上的选择按钮
-DEFAULT_DESIGN_COUNT = 1  # 可以设置为1, 3, 5，分别对应原来的low, medium, high
+DEFAULT_DESIGN_COUNT = 3  # 可以设置为1, 3, 5，分别对应原来的low, medium, high
 
 def get_ai_design_suggestions(user_preferences=None):
     """Get design suggestions from GPT-4o-mini with more personalized features"""
