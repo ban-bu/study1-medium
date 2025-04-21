@@ -421,6 +421,7 @@ def generate_complete_design(design_prompt, variation_id=None):
         # 如果提供了变体ID，为不同变体生成不同的设计
         color_hex = design_suggestions.get("color", {}).get("hex", "#FFFFFF")
         fabric_type = design_suggestions.get("fabric", "Cotton")
+        original_color_hex = color_hex  # 保存原始颜色，用于logo生成
         
         # 根据变体ID调整颜色和纹理
         if variation_id is not None:
@@ -481,6 +482,7 @@ def generate_complete_design(design_prompt, variation_id=None):
             8. NO META REFERENCES - do not show the logo applied to anything
             9. Design should be a standalone graphic symbol/icon only"""
             
+            # 始终使用当前T恤颜色生成logo
             logo_image = generate_vector_image(logo_prompt, color_hex)
         
         # 最终设计 - 不添加文字
@@ -527,7 +529,7 @@ def generate_multiple_designs(design_prompt, count=1):
             return None, {"error": f"Failed to generate design {variation_id}"}
     
     # 创建线程池
-    with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(count, 5)) as executor:
         # 提交所有任务
         future_to_id = {executor.submit(generate_single_design, i): i for i in range(count)}
         
