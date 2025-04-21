@@ -74,7 +74,7 @@ def get_ai_design_suggestions(user_preferences=None):
     1. Color: Select the most suitable color for this style (provide name and hex code)
     2. Fabric: Select the most suitable fabric type (Cotton, Polyester, Cotton-Polyester Blend, Jersey, Linen, or Bamboo)
     3. Text: A suitable phrase or slogan that matches the style (keep it concise and impactful)
-    4. Logo: A brief description of a logo/graphic element that would complement the design
+    4. Logo: A brief description of a logo element that would complement the design
 
     Return your response as a valid JSON object with the following structure:
     {{
@@ -121,13 +121,22 @@ def get_ai_design_suggestions(user_preferences=None):
     except Exception as e:
         return {"error": f"Error getting AI design suggestions: {str(e)}"}
 
-def generate_vector_image(prompt):
-    """Generate an image based on the prompt"""
+def generate_vector_image(prompt, background_color=None):
+    """Generate an image based on the prompt with specified background color"""
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    
+    # 如果提供了背景颜色，在提示中指定
+    color_prompt = ""
+    if background_color:
+        color_prompt = f" with EXACT RGB background color matching {background_color}"
+    
+    # 添加禁止生成T恤或服装的提示
+    prohibition = " DO NOT include any t-shirts, clothing, mockups, or how the design would look when applied to products. Create ONLY the standalone graphic."
+    
     try:
         resp = client.images.generate(
             model="dall-e-3",
-            prompt=prompt + " (Make sure the image has a solid color background, NOT transparent)",
+            prompt=prompt + f" (Make sure the image has a solid{color_prompt} background, NOT transparent. This is very important for my design!){prohibition}",
             n=1,
             size="1024x1024",
             quality="standard"
@@ -146,12 +155,20 @@ def generate_vector_image(prompt):
                     # 使用更新后的SVG处理函数
                     return convert_svg_to_png(image_resp.content)
                 else:
-                    # 确保图像没有透明背景
+                    # 确保图像没有透明背景，使用指定的背景色
                     img = Image.open(BytesIO(image_resp.content)).convert("RGBA")
-                    # 创建白色背景图像
-                    white_bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                    
+                    # 如果提供了背景颜色，使用指定颜色；否则使用白色
+                    if background_color:
+                        # 转换十六进制颜色为RGB
+                        bg_color = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
+                    else:
+                        bg_color = (255, 255, 255, 255)
+                    
+                    # 创建指定背景色的背景图像
+                    color_bg = Image.new("RGBA", img.size, bg_color)
                     # 合成图像，消除透明度
-                    img = Image.alpha_composite(white_bg, img)
+                    img = Image.alpha_composite(color_bg, img)
                     return img
             else:
                 st.error(f"Failed to download image, status code: {image_resp.status_code}")
@@ -271,8 +288,8 @@ def apply_text_to_shirt(image, text, color_hex="#FFFFFF", font_size=80):
     
     return result_image
 
-def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent=60):
-    """Apply logo to T-shirt image"""
+def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent=60, background_color=None):
+    """Apply logo to T-shirt image with matching background color"""
     if logo_image is None:
         return shirt_image
     
@@ -286,15 +303,49 @@ def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent
     chest_left = (img_width - chest_width) // 2
     chest_top = int(img_height * 0.2)
     
-    # 确保logo没有透明背景
-    # 创建白色背景图像
-    white_bg = Image.new("RGBA", logo_image.size, (255, 255, 255, 255))
-    # 合成图像，消除透明度
-    logo_with_bg = Image.alpha_composite(white_bg, logo_image)
+    # 准备logo图像
+    logo_with_bg = logo_image.copy().convert("RGBA")
     
-    # 调整Logo大小 - 增大图案尺寸
+    # 提取logo前景，抛弃原始背景
+    # 分析logo图像以找到可能的logo前景
+    data = logo_with_bg.getdata()
+    logo_pixels = []
+    
+    # 使用与T恤相同的背景色
+    if background_color:
+        # 转换十六进制颜色为RGB
+        bg_color = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
+    else:
+        bg_color = (255, 255, 255, 255)
+    
+    # 创建新的图像，完全使用T恤的颜色作为背景
+    new_logo = Image.new("RGBA", logo_with_bg.size, bg_color)
+    
+    # 非常简单的方法：仅保留明显不是背景的像素
+    # 这种方法可能会导致logo边缘不够平滑，但能确保背景颜色完全匹配
+    threshold = 60  # 调整此值以控制多少像素被视为前景
+    
+    for y in range(logo_with_bg.height):
+        for x in range(logo_with_bg.width):
+            pixel = logo_with_bg.getpixel((x, y))
+            
+            # 计算像素与背景色的差异
+            if len(pixel) == 4:  # RGBA
+                r_diff = abs(pixel[0] - bg_color[0])
+                g_diff = abs(pixel[1] - bg_color[1])
+                b_diff = abs(pixel[2] - bg_color[2])
+                diff = r_diff + g_diff + b_diff
+                
+                # 如果像素与背景色差异足够大，则认为是前景
+                if diff > threshold:
+                    new_logo.putpixel((x, y), pixel)
+    
+    # 使用处理后的logo
+    logo_with_bg = new_logo
+    
+    # 调整Logo大小
     logo_size_factor = size_percent / 100
-    logo_width = int(chest_width * logo_size_factor * 0.7)  # 从0.5增加到0.7
+    logo_width = int(chest_width * logo_size_factor * 0.7)
     logo_height = int(logo_width * logo_with_bg.height / logo_with_bg.width)
     logo_resized = logo_with_bg.resize((logo_width, logo_height), Image.LANCZOS)
     
@@ -404,16 +455,28 @@ def generate_complete_design(design_prompt, variation_id=None):
                 if variation_id <= len(modifiers):
                     logo_desc = f"{modifiers[variation_id-1]} {logo_description}"
             
-            # 修改Logo提示词，确保生成的Logo有白色背景，没有透明部分
-            logo_prompt = f"Create a Logo design for printing: {logo_desc}. Requirements: 1. Simple professional design 2. NO TRANSPARENCY background (NO TRANSPARENCY) 3. Clear and distinct graphic 4. Good contrast with colors that will show well on fabric"
-            logo_image = generate_vector_image(logo_prompt)
+            # 修改Logo提示词，确保生成的Logo有与T恤颜色相匹配的背景，并且不会包含T恤图像
+            logo_prompt = f"""Create a Logo design for printing: {logo_desc}. 
+            Requirements: 
+            1. Simple professional design
+            2. Solid background color matching the t-shirt
+            3. Clear and distinct graphic
+            4. Good contrast with colors that will show well on fabric
+            5. IMPORTANT: Do NOT include any t-shirts, clothing, or apparel in the design
+            6. IMPORTANT: Do NOT include any mockups or product previews
+            7. IMPORTANT: Create ONLY the logo graphic itself, NOT how it would look on a t-shirt
+            8. NO META REFERENCES - do not show the logo applied to anything
+            9. Design should be a standalone graphic symbol/icon only"""
+            
+            logo_image = generate_vector_image(logo_prompt, color_hex)
         
         # 最终设计 - 不添加文字
         final_design = colored_shirt
         
         # 应用Logo (如果有)
         if logo_image:
-            final_design = apply_logo_to_shirt(colored_shirt, logo_image, "center", 60)
+            # 使用与T恤相同的颜色作为logo背景
+            final_design = apply_logo_to_shirt(colored_shirt, logo_image, "center", 60, color_hex)
         
         return final_design, {
             "color": {"hex": color_hex, "name": design_suggestions.get("color", {}).get("name", "Custom Color")},
