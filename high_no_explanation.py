@@ -127,7 +127,7 @@ def generate_vector_image(prompt):
     try:
         resp = client.images.generate(
             model="dall-e-3",
-            prompt=prompt,
+            prompt=prompt + " (Make sure the image has a solid color background, NOT transparent)",
             n=1,
             size="1024x1024",
             quality="standard"
@@ -146,7 +146,13 @@ def generate_vector_image(prompt):
                     # 使用更新后的SVG处理函数
                     return convert_svg_to_png(image_resp.content)
                 else:
-                    return Image.open(BytesIO(image_resp.content)).convert("RGBA")
+                    # 确保图像没有透明背景
+                    img = Image.open(BytesIO(image_resp.content)).convert("RGBA")
+                    # 创建白色背景图像
+                    white_bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                    # 合成图像，消除透明度
+                    img = Image.alpha_composite(white_bg, img)
+                    return img
             else:
                 st.error(f"Failed to download image, status code: {image_resp.status_code}")
         except Exception as download_err:
@@ -265,7 +271,7 @@ def apply_text_to_shirt(image, text, color_hex="#FFFFFF", font_size=80):
     
     return result_image
 
-def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent=30):
+def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent=60):
     """Apply logo to T-shirt image"""
     if logo_image is None:
         return shirt_image
@@ -280,11 +286,17 @@ def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent
     chest_left = (img_width - chest_width) // 2
     chest_top = int(img_height * 0.2)
     
-    # 调整Logo大小
+    # 确保logo没有透明背景
+    # 创建白色背景图像
+    white_bg = Image.new("RGBA", logo_image.size, (255, 255, 255, 255))
+    # 合成图像，消除透明度
+    logo_with_bg = Image.alpha_composite(white_bg, logo_image)
+    
+    # 调整Logo大小 - 增大图案尺寸
     logo_size_factor = size_percent / 100
-    logo_width = int(chest_width * logo_size_factor * 0.5)
-    logo_height = int(logo_width * logo_image.height / logo_image.width)
-    logo_resized = logo_image.resize((logo_width, logo_height), Image.LANCZOS)
+    logo_width = int(chest_width * logo_size_factor * 0.7)  # 从0.5增加到0.7
+    logo_height = int(logo_width * logo_with_bg.height / logo_with_bg.width)
+    logo_resized = logo_with_bg.resize((logo_width, logo_height), Image.LANCZOS)
     
     # 根据位置确定坐标
     position = position.lower() if isinstance(position, str) else "center"
@@ -401,7 +413,7 @@ def generate_complete_design(design_prompt, variation_id=None):
         
         # 应用Logo (如果有)
         if logo_image:
-            final_design = apply_logo_to_shirt(colored_shirt, logo_image, "center", 30)
+            final_design = apply_logo_to_shirt(colored_shirt, logo_image, "center", 60)
         
         return final_design, {
             "color": {"hex": color_hex, "name": design_suggestions.get("color", {}).get("name", "Custom Color")},
@@ -625,19 +637,19 @@ def show_high_recommendation_without_explanation():
         # 设计提示词和推荐级别选择区
         st.markdown("### Design Options")
         
-        # 移除推荐级别选择按钮，改为显示当前级别信息
-        if DEFAULT_DESIGN_COUNT == 1:
-            level_text = "Low - will generate 1 design"
-        elif DEFAULT_DESIGN_COUNT == 3:
-            level_text = "Medium - will generate 3 designs"
-        else:  # 5或其他值
-            level_text = "High - will generate 5 designs"
+        # # 移除推荐级别选择按钮，改为显示当前级别信息
+        # if DEFAULT_DESIGN_COUNT == 1:
+        #     level_text = "Low - will generate 1 design"
+        # elif DEFAULT_DESIGN_COUNT == 3:
+        #     level_text = "Medium - will generate 3 designs"
+        # else:  # 5或其他值
+        #     level_text = "High - will generate 5 designs"
             
-        st.markdown(f"""
-        <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin-bottom: 20px;">
-        <p style="margin: 0; font-size: 16px; font-weight: bold;">Current recommendation level: {level_text}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        # st.markdown(f"""
+        # <div style="padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin-bottom: 20px;">
+        # <p style="margin: 0; font-size: 16px; font-weight: bold;">Current recommendation level: {level_text}</p>
+        # </div>
+        # """, unsafe_allow_html=True)
         
         # 提示词输入区
         st.markdown("#### Describe your desired T-shirt design:")
@@ -650,29 +662,13 @@ def show_high_recommendation_without_explanation():
         </div>
         """, unsafe_allow_html=True)
         
-        # 三个关键词输入框
-        keyword_cols = st.columns(3)
-        
         # 初始化关键词状态
-        if 'keyword1' not in st.session_state:
-            st.session_state.keyword1 = ""
-        if 'keyword2' not in st.session_state:
-            st.session_state.keyword2 = ""
-        if 'keyword3' not in st.session_state:
-            st.session_state.keyword3 = ""
+        if 'keywords' not in st.session_state:
+            st.session_state.keywords = ""
         
         # 关键词输入框
-        with keyword_cols[0]:
-            keyword1 = st.text_input("Style", value=st.session_state.keyword1, 
-                                    placeholder="e.g., casual, elegant", key="input_keyword1")
-        
-        with keyword_cols[1]:
-            keyword2 = st.text_input("Theme", value=st.session_state.keyword2, 
-                                    placeholder="e.g., nature, sports", key="input_keyword2")
-        
-        with keyword_cols[2]:
-            keyword3 = st.text_input("Color", value=st.session_state.keyword3, 
-                                    placeholder="e.g., blue, vibrant", key="input_keyword3")
+        keywords = st.text_input("Enter keywords for your design", value=st.session_state.keywords, 
+                              placeholder="e.g., casual, nature, blue", key="input_keywords")
         
         # 生成设计按钮
         generate_col = st.empty()
@@ -686,17 +682,14 @@ def show_high_recommendation_without_explanation():
         # 生成设计按钮事件处理
         if generate_button:
             # 保存用户输入的关键词
-            st.session_state.keyword1 = keyword1
-            st.session_state.keyword2 = keyword2
-            st.session_state.keyword3 = keyword3
+            st.session_state.keywords = keywords
             
-            # 检查是否至少输入了一个关键词
-            if not (keyword1 or keyword2 or keyword3):
+            # 检查是否输入了关键词
+            if not keywords:
                 st.error("Please enter at least one keyword")
             else:
-                # 组合关键词成为完整提示词
-                keywords = [k for k in [keyword1, keyword2, keyword3] if k]
-                user_prompt = ", ".join(keywords)
+                # 直接使用用户输入的关键词作为提示词
+                user_prompt = keywords
                 
                 # 保存用户输入
                 st.session_state.user_prompt = user_prompt
