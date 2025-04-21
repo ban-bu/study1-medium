@@ -67,7 +67,7 @@ def get_ai_design_suggestions(user_preferences=None):
     
     # Construct the prompt
     prompt = f"""
-    As a T-shirt design consultant, please provide personalized design suggestions for a "{user_preferences}" style T-shirt.
+    As a design consultant, please provide personalized design suggestions for a "{user_preferences}" style.
     
     Please provide the following design suggestions in JSON format:
 
@@ -93,7 +93,7 @@ def get_ai_design_suggestions(user_preferences=None):
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a professional T-shirt design consultant. Provide design suggestions in JSON format exactly as requested."},
+                {"role": "system", "content": "You are a professional design consultant. Provide design suggestions in JSON format exactly as requested."},
                 {"role": "user", "content": prompt}
             ]
         )
