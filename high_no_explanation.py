@@ -289,7 +289,7 @@ def apply_text_to_shirt(image, text, color_hex="#FFFFFF", font_size=80):
     return result_image
 
 def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent=60, background_color=None):
-    """Apply logo to T-shirt image with matching background color"""
+    """Apply logo to T-shirt image with better blending to reduce shadows"""
     if logo_image is None:
         return shirt_image
     
@@ -303,45 +303,8 @@ def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent
     chest_left = (img_width - chest_width) // 2
     chest_top = int(img_height * 0.2)
     
-    # 准备logo图像
+    # 提取logo前景
     logo_with_bg = logo_image.copy().convert("RGBA")
-    
-    # 提取logo前景，抛弃原始背景
-    # 分析logo图像以找到可能的logo前景
-    data = logo_with_bg.getdata()
-    logo_pixels = []
-    
-    # 使用与T恤相同的背景色
-    if background_color:
-        # 转换十六进制颜色为RGB
-        bg_color = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (255,)
-    else:
-        bg_color = (255, 255, 255, 255)
-    
-    # 创建新的图像，完全使用T恤的颜色作为背景
-    new_logo = Image.new("RGBA", logo_with_bg.size, bg_color)
-    
-    # 非常简单的方法：仅保留明显不是背景的像素
-    # 这种方法可能会导致logo边缘不够平滑，但能确保背景颜色完全匹配
-    threshold = 60  # 调整此值以控制多少像素被视为前景
-    
-    for y in range(logo_with_bg.height):
-        for x in range(logo_with_bg.width):
-            pixel = logo_with_bg.getpixel((x, y))
-            
-            # 计算像素与背景色的差异
-            if len(pixel) == 4:  # RGBA
-                r_diff = abs(pixel[0] - bg_color[0])
-                g_diff = abs(pixel[1] - bg_color[1])
-                b_diff = abs(pixel[2] - bg_color[2])
-                diff = r_diff + g_diff + b_diff
-                
-                # 如果像素与背景色差异足够大，则认为是前景
-                if diff > threshold:
-                    new_logo.putpixel((x, y), pixel)
-    
-    # 使用处理后的logo
-    logo_with_bg = new_logo
     
     # 调整Logo大小
     logo_size_factor = size_percent / 100
@@ -359,12 +322,62 @@ def apply_logo_to_shirt(shirt_image, logo_image, position="center", size_percent
     else:  # 默认中间
         logo_x, logo_y = chest_left + (chest_width - logo_width) // 2, chest_top + (chest_height - logo_height) // 2 + 30
     
-    # 创建临时图像用于粘贴logo
-    temp_image = Image.new("RGBA", result_image.size, (0, 0, 0, 0))
-    temp_image.paste(logo_resized, (logo_x, logo_y), logo_resized)
+    # 创建一个蒙版，用于混合logo和T恤
+    # 提取logo的非背景部分
+    logo_mask = Image.new("L", logo_resized.size, 0)  # 创建一个黑色蒙版（透明）
     
-    # 组合图像
-    result_image = Image.alpha_composite(result_image, temp_image)
+    # 如果提供了背景颜色，使用它来判断什么是背景
+    if background_color:
+        bg_color_rgb = tuple(int(background_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+    else:
+        # 默认假设白色是背景
+        bg_color_rgb = (255, 255, 255)
+    
+    # 遍历像素，创建蒙版
+    for y in range(logo_resized.height):
+        for x in range(logo_resized.width):
+            pixel = logo_resized.getpixel((x, y))
+            if len(pixel) >= 3:  # 至少有RGB值
+                # 计算与背景颜色的差异
+                r_diff = abs(pixel[0] - bg_color_rgb[0])
+                g_diff = abs(pixel[1] - bg_color_rgb[1])
+                b_diff = abs(pixel[2] - bg_color_rgb[2])
+                diff = r_diff + g_diff + b_diff
+                
+                # 如果差异大于阈值，则认为是前景
+                if diff > 60:  # 可以调整阈值
+                    # 根据差异程度设置不同的透明度
+                    transparency = min(255, diff)
+                    logo_mask.putpixel((x, y), transparency)
+    
+    # 获取logo区域在T恤上的背景图像
+    shirt_region = result_image.crop((logo_x, logo_y, logo_x + logo_width, logo_y + logo_height))
+    
+    # 合成logo和T恤区域，使用蒙版确保只有logo的非背景部分被使用
+    # 这样能够保留T恤的原始纹理
+    for y in range(logo_height):
+        for x in range(logo_width):
+            mask_value = logo_mask.getpixel((x, y))
+            if mask_value > 20:  # 有一定的不透明度
+                # 获取logo像素
+                logo_pixel = logo_resized.getpixel((x, y))
+                # 获取T恤对应位置的像素
+                shirt_pixel = shirt_region.getpixel((x, y))
+                
+                # 根据透明度混合像素
+                alpha = mask_value / 255.0
+                blended_pixel = (
+                    int(logo_pixel[0] * alpha + shirt_pixel[0] * (1 - alpha)),
+                    int(logo_pixel[1] * alpha + shirt_pixel[1] * (1 - alpha)),
+                    int(logo_pixel[2] * alpha + shirt_pixel[2] * (1 - alpha)),
+                    255  # 完全不透明
+                )
+                
+                # 更新T恤区域的像素
+                shirt_region.putpixel((x, y), blended_pixel)
+    
+    # 将修改后的区域粘贴回T恤
+    result_image.paste(shirt_region, (logo_x, logo_y))
     
     return result_image
 
