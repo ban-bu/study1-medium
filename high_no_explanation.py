@@ -55,7 +55,7 @@ def convert_svg_to_png(svg_content):
         return None
 
 # 设置默认生成的设计数量，取代UI上的选择按钮
-DEFAULT_DESIGN_COUNT = 3  # 可以设置为1, 3, 5，分别对应原来的low, medium, high
+DEFAULT_DESIGN_COUNT = 1  # 可以设置为1, 3, 5，分别对应原来的low, medium, high
 
 def get_ai_design_suggestions(user_preferences=None):
     """Get design suggestions from GPT-4o-mini with more personalized features"""
@@ -128,8 +128,8 @@ def generate_vector_image(prompt, background_color=None):
     # 如果提供了背景颜色，在提示中明确指定
     color_prompt = ""
     if background_color:
-        # 更加强调颜色匹配
-        color_prompt = f" with EXACT RGB background color {background_color} (match this exact color code)"
+        # 更加强调颜色匹配，指定确切的HEX色号
+        color_prompt = f" with EXACT RGB background color HEX:{background_color} (you MUST use this exact HEX color code for the background)"
     
     # 添加禁止生成T恤或服装的提示
     prohibition = " DO NOT include any t-shirts, clothing, mockups, or how the design would look when applied to products. Create ONLY the standalone graphic."
@@ -137,7 +137,7 @@ def generate_vector_image(prompt, background_color=None):
     try:
         resp = client.images.generate(
             model="dall-e-3",
-            prompt=prompt + f" (Make sure the image has a solid{color_prompt} background, NOT transparent. Color matching is critical for my design!){prohibition}",
+            prompt=prompt + f" (Make sure the image has a solid{color_prompt} background, NOT transparent. Color matching is CRITICAL - background must be EXACTLY {background_color}!){prohibition}",
             n=1,
             size="1024x1024",
             quality="standard"
@@ -421,6 +421,7 @@ def generate_complete_design(design_prompt, variation_id=None):
     try:
         # 使用AI建议的颜色和面料
         color_hex = design_suggestions.get("color", {}).get("hex", "#FFFFFF")
+        color_name = design_suggestions.get("color", {}).get("name", "Custom Color")
         fabric_type = design_suggestions.get("fabric", "Cotton")
         
         # 1. 应用颜色和纹理
@@ -436,18 +437,19 @@ def generate_complete_design(design_prompt, variation_id=None):
         logo_image = None
         
         if logo_description:
-            # 修改Logo提示词，确保生成的Logo有与T恤颜色相匹配的背景，并且不会包含T恤图像
+            # 修改Logo提示词，明确指定颜色代码，确保生成的Logo背景与T恤颜色完全一致
             logo_prompt = f"""Create a Logo design for printing: {logo_description}. 
             Requirements: 
             1. Simple professional design
-            2. Solid background color matching the t-shirt
+            2. IMPORTANT: The background MUST be exactly {color_name} color with HEX code {color_hex}
             3. Clear and distinct graphic
             4. Good contrast with colors that will show well on fabric
             5. IMPORTANT: Do NOT include any t-shirts, clothing, or apparel in the design
             6. IMPORTANT: Do NOT include any mockups or product previews
             7. IMPORTANT: Create ONLY the logo graphic itself, NOT how it would look on a t-shirt
             8. NO META REFERENCES - do not show the logo applied to anything
-            9. Design should be a standalone graphic symbol/icon only"""
+            9. Design should be a standalone graphic symbol/icon only
+            10. CRITICAL: The entire background must be solid color {color_hex} with no variations"""
             
             # 使用当前T恤颜色生成logo
             logo_image = generate_vector_image(logo_prompt, color_hex)
@@ -461,7 +463,7 @@ def generate_complete_design(design_prompt, variation_id=None):
             final_design = apply_logo_to_shirt(colored_shirt, logo_image, "center", 60, color_hex)
         
         return final_design, {
-            "color": {"hex": color_hex, "name": design_suggestions.get("color", {}).get("name", "Custom Color")},
+            "color": {"hex": color_hex, "name": color_name},
             "fabric": fabric_type,
             "logo": logo_description,
             "design_index": 0 if variation_id is None else variation_id  # 使用design_index替代variation_id
