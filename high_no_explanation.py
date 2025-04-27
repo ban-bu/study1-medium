@@ -63,7 +63,7 @@ def get_ai_design_suggestions(user_preferences=None):
     
     # Default prompt if no user preferences provided
     if not user_preferences:
-        user_preferences = "casual fashion t-shirt design"
+        user_preferences = "casual fashion design"
     
     # Construct the prompt
     prompt = f"""
